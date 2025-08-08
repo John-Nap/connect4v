@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Connect Four — Play in Browser</title>
+<style>
+  :root{
+    --bg:#0f1724;
+    --panel:#0b1220;
+    --accent:#ffcc00;
+    --p1:#e63946; /* red */
+    --p2:#2b7a78; /* teal */
+    --empty:#0b1530;
+    --cell-size:70px;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    background: linear-gradient(180deg,#071026 0%, #081827 60%);
+    color:#dbeafe;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .container{
+    width: calc(var(--cell-size) * 7 + 40px);
+    max-width: calc(100% - 24px);
+    background: linear-gradient(180deg,var(--panel), #072034);
+    padding:18px;
+    border-radius:12px;
+    box-shadow: 0 8px 30px rgba(2,6,23,.7), inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-bottom:12px;
+  }
+  h1{ font-size:18px; margin:0; }
+  .controls{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  button{
+    background:transparent;
+    color: #dbeafe;
+    border:1px solid rgba(255,255,255,0.06);
+    padding:6px 10px;
+    border-radius:8px;
+    cursor:pointer;
+    font-weight:600;
+  }
+  button:hover{ transform:translateY(-1px); }
+
+  .status{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-weight:600;
+  }
+  .player-indicator{
+    width:18px;
+    height:18px;
+    border-radius:50%;
+    box-shadow:0 1px 0 rgba(0,0,0,.6) inset;
+  }
+
+  /* Board */
+  .board-wrap{
+    display:flex;
+    justify-content:center;
+    padding:12px;
+  }
+  .board{
+    display:grid;
+    grid-template-columns: repeat(7, var(--cell-size));
+    grid-template-rows: repeat(6, var(--cell-size));
+    gap:8px;
+    background: linear-gradient(180deg,#061a35,#08304f);
+    padding:12px;
+    border-radius:10px;
+    box-shadow: 0 6px 24px rgba(2,6,23,.6);
+    position:relative;
+    user-select:none;
+  }
+
+  .col-hover {
+    position:absolute;
+    top:8px;
+    bottom:8px;
+    width:var(--cell-size);
+    pointer-events:none;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    z-index:5;
+    transition: left .08s ease;
+  }
+  .hover-dot{
+    width:44px;
+    height:44px;
+    margin-top:8px;
+    border-radius:50%;
+    opacity:.9;
+    transform:translateY(-8px);
+  }
+
+  .cell{
+    width:var(--cell-size);
+    height:var(--cell-size);
+    border-radius:50%;
+    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.05), rgba(255,255,255,0)),
+                var(--empty);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    transition: transform .06s ease;
+    box-shadow: 0 3px 10px rgba(2,6,23,0.5) inset;
+  }
+  .cell:active{ transform:translateY(2px); }
+
+  .disk{
+    width:74%;
+    height:74%;
+    border-radius:50%;
+    background:transparent;
+    box-shadow: 0 6px 18px rgba(2,6,23,0.6);
+    transition: transform .12s cubic-bezier(.2,.9,.3,1), box-shadow .12s;
+  }
+  .player1{ background: linear-gradient(180deg,var(--p1), #b91c1c); }
+  .player2{ background: linear-gradient(180deg,var(--p2), #135b59); }
+
+  .win-highlight{
+    outline: 4px solid rgba(255,255,255,0.08);
+    box-shadow:0 0 30px rgba(255,255,255,0.06);
+  }
+
+  .footer{
+    display:flex;
+    justify-content:space-between;
+    margin-top:12px;
+    font-size:13px;
+    color:#9fb0d6;
+  }
+
+  @media (max-width:560px){
+    :root{ --cell-size:44px; }
+    .container{ padding:12px;}
+    h1{ font-size:15px }
+  }
+</style>
+</head>
+<body>
+<div class="container" role="main" aria-label="Connect Four game">
+  <header>
+    <h1>Connect Four</h1>
+    <div class="controls">
+      <div class="status" id="status">
+        <div class="player-indicator" id="turnDot"></div>
+        <div id="statusText">Player 1's turn</div>
+      </div>
+      <button id="toggleMode">Mode: 2-Player</button>
+      <button id="reset">Reset</button>
+    </div>
+  </header>
+
+  <div class="board-wrap">
+    <div class="board" id="board" role="grid" aria-label="Connect Four board"></div>
+    <div class="col-hover" id="colHover" style="display:none;">
+      <div class="hover-dot" id="hoverDot"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>Click a column to drop a disk. First to connect 4 wins.</div>
+    <div>Made for you — play! 🎮</div>
+  </div>
+</div>
+
+<script>
+/*
+ Connect Four - single-file implementation
+  - 7 columns, 6 rows
+  - Two-player hotseat by default
+  - Optional simple AI (random + block) when Mode set to "1P"
+  - Win detection (horizontal, vertical, diagonal)
+  - Highlights winning discs
+*/
+
+const COLUMNS = 7;
+const ROWS = 6;
+
+const boardEl = document.getElementById('board');
+const statusText = document.getElementById('statusText');
+const turnDot = document.getElementById('turnDot');
+const resetBtn = document.getElementById('reset');
+const toggleModeBtn = document.getElementById('toggleMode');
+const colHover = document.getElementById('colHover');
+const hoverDot = document.getElementById('hoverDot');
+
+let board = []; // board[row][col]; row 0 top, row ROWS-1 bottom
+let currentPlayer = 1; // 1 or 2
+let gameOver = false;
+let mode = '2P'; // '2P' or '1P'
+let lastMove = null; // {r,c}
+let cells = []; // references to DOM elements [r][c]
+
+function initBoard(){
+  board = Array.from({length: ROWS}, ()=> Array(COLUMNS).fill(0));
+  cells = [];
+  boardEl.innerHTML = '';
+  boardEl.style.setProperty('--cell-size', getComputedStyle(document.documentElement).getPropertyValue('--cell-size') || '70px');
+
+  for(let r=0;r<ROWS;r++){
+    cells[r] = [];
+    for(let c=0;c<COLUMNS;c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.row = r;
+      cell.dataset.col = c;
+      cell.setAttribute('role','button');
+      cell.setAttribute('aria-label', `column ${c+1} row ${r+1}`);
+      const disk = document.createElement('div');
+      disk.className = 'disk';
+      cell.appendChild(disk);
+      boardEl.appendChild(cell);
+      cells[r][c] = {cell, disk};
+      // click handler uses column only
+      cell.addEventListener('click', ()=> handleColumnClick(c));
+    }
+  }
+
+  // hover behaviour: show a dot over the column
+  boardEl.addEventListener('mousemove', (e)=>{
+    const rect = boardEl.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const colW = rect.width / COLUMNS;
+    const col = Math.floor(x / colW);
+    if(col >=0 && col < COLUMNS){
+      colHover.style.display = 'flex';
+      colHover.style.left = (col * (colW) + 8) + 'px';
+      hoverDot.className = 'hover-dot ' + (currentPlayer===1? 'player1':'player2');
+    } else {
+      colHover.style.display = 'none';
+    }
+  });
+  boardEl.addEventListener('mouseleave', ()=> colHover.style.display = 'none');
+
+  updateTurnUI();
+  gameOver = false;
+  lastMove = null;
+}
+
+function handleColumnClick(col){
+  if(gameOver) return;
+  // find lowest empty row
+  for(let r = ROWS-1; r>=0; r--){
+    if(board[r][col] === 0){
+      placeDisc(r,col,currentPlayer);
+      return;
+    }
+  }
+  // column full -> do nothing
+}
+
+function placeDisc(r,c,player){
+  board[r][c] = player;
+  lastMove = {r,c,player};
+  renderCell(r,c,player);
+
+  const win = checkWin(r,c,player);
+  if(win){
+    gameOver = true;
+    highlightWin(win);
+    statusText.textContent = `Player ${player} wins!`;
+    turnDot.style.boxShadow = '0 0 30px rgba(255,255,255,0.06)';
+    return;
+  }
+
+  if(isBoardFull()){
+    gameOver = true;
+    statusText.textContent = "It's a tie!";
+    return;
+  }
+
+  // switch player or do AI move
+  if(mode === '2P'){
+    currentPlayer = 3 - currentPlayer;
+    updateTurnUI();
+  } else { // 1P mode, player1 always human, player2 AI
+    if(player === 1){
+      currentPlayer = 2;
+      updateTurnUI();
+      // small delay to make AI feel natural
+      setTimeout(() => aiMove(), 350);
+    } else {
+      currentPlayer = 1;
+      updateTurnUI();
+    }
+  }
+}
+
+function renderCell(r,c,player){
+  const disk = cells[r][c].disk;
+  disk.className = 'disk ' + (player===1? 'player1' : 'player2');
+  // small drop animation
+  disk.style.transform = 'translateY(-20px) scale(.98)';
+  setTimeout(()=> disk.style.transform = 'translateY(0) scale(1)', 20);
+}
+
+function updateTurnUI(){
+  if(gameOver) return;
+  statusText.textContent = `Player ${currentPlayer}'s turn`;
+  turnDot.style.background = currentPlayer===1 ? getComputedStyle(document.documentElement).getPropertyValue('--p1') : getComputedStyle(document.documentElement).getPropertyValue('--p2');
+  turnDot.style.boxShadow = '0 0 0 rgba(0,0,0,0)';
+  hoverDot.className = 'hover-dot ' + (currentPlayer===1? 'player1':'player2');
+}
+
+function isBoardFull(){
+  for(let c=0;c<COLUMNS;c++){
+    if(board[0][c] === 0) return false;
+  }
+  return true;
+}
+
+/* Win detection: returns array of win coords [{r,c},...] if win else null */
+function checkWin(r,c,player){
+  const directions = [
+    {dr:0, dc:1},   // horizontal
+    {dr:1, dc:0},   // vertical
+    {dr:1, dc:1},   // diag down-right
+    {dr:1, dc:-1}   // diag down-left
+  ];
+  for(const d of directions){
+    let count = 1;
+    const coords = [{r,c}];
+
+    // forward
+    let rr = r + d.dr, cc = c + d.dc;
+    while(inBounds(rr,cc) && board[rr][cc] === player){
+      coords.push({r:rr,c:cc});
+      count++; rr += d.dr; cc += d.dc;
+    }
+    // backward
+    rr = r - d.dr; cc = c - d.dc;
+    while(inBounds(rr,cc) && board[rr][cc] === player){
+      coords.push({r:rr,c:cc});
+      count++; rr -= d.dr; cc -= d.dc;
+    }
+
+    if(count >= 4) return coords;
+  }
+  return null;
+}
+function inBounds(r,c){ return r>=0 && r<ROWS && c>=0 && c<COLUMNS; }
+
+function highlightWin(winCoords){
+  for(const {r,c} of winCoords){
+    cells[r][c].disk.classList.add('win-highlight');
+  }
+  colHover.style.display = 'none';
+}
+
+/* Simple AI for 1P mode:
+   - If can win immediately, play that.
+   - Else if opponent can win next move, block.
+   - Else random column among non-full columns.
+*/
+function aiMove(){
+  if(gameOver) return;
+  // try to find winning move for AI (player 2)
+  for(let c=0;c<COLUMNS;c++){
+    const r = nextOpenRow(c);
+    if(r === null) continue;
+    board[r][c] = 2;
+    if(checkWin(r,c,2)){
+      board[r][c] = 0;
+      placeDisc(r,c,2);
+      return;
+    }
+    board[r][c] = 0;
+  }
+  // try to block player 1 winning move
+  for(let c=0;c<COLUMNS;c++){
+    const r = nextOpenRow(c);
+    if(r === null) continue;
+    board[r][c] = 1;
+    if(checkWin(r,c,1)){
+      board[r][c] = 0;
+      placeDisc(r,c,2);
+      return;
+    }
+    board[r][c] = 0;
+  }
+  // else pick a reasonable column: prefer center columns
+  const preferred = [3,2,4,1,5,0,6];
+  for(const c of preferred){
+    const r = nextOpenRow(c);
+    if(r !== null){ placeDisc(r,c,2); return; }
+  }
+}
+
+function nextOpenRow(col){
+  for(let r=ROWS-1;r>=0;r--){
+    if(board[r][col] === 0) return r;
+  }
+  return null;
+}
+
+resetBtn.addEventListener('click', ()=>{
+  initBoard();
+  // clear any win highlights
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLUMNS;c++){
+      cells[r][c].disk.classList.remove('win-highlight');
+      cells[r][c].disk.className = 'disk';
+    }
+  }
+});
+
+toggleModeBtn.addEventListener('click', ()=>{
+  if(mode === '2P'){
+    mode = '1P';
+    toggleModeBtn.textContent = 'Mode: 1-Player';
+    // set player 1 to human, player 2 to AI
+  } else {
+    mode = '2P';
+    toggleModeBtn.textContent = 'Mode: 2-Player';
+  }
+  initBoard();
+});
+
+// keyboard support: 1-7 drop into columns 1..7, R to reset, M to toggle mode
+document.addEventListener('keydown', (e)=>{
+  if(e.key >= '1' && e.key <= '7'){
+    handleColumnClick(parseInt(e.key) - 1);
+  } else if(e.key === 'r' || e.key === 'R'){
+    resetBtn.click();
+  } else if(e.key === 'm' || e.key === 'M'){
+    toggleModeBtn.click();
+  }
+});
+
+// Initialize the board on load
+initBoard();
+</script>
+</body>
+</html>
